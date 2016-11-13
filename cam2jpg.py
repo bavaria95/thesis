@@ -1,8 +1,20 @@
 import cv2
 import sys
-    
+import numpy as np    
 # Create the haar cascade
 faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+
+def write_matrix_to_textfile(a_matrix, file_to_write):
+
+    def compile_row_string(a_row):
+        return str(a_row).strip(']').strip('[').replace(' ','')
+
+    with open(file_to_write, 'w') as f:
+        for row in a_matrix:
+            f.write(compile_row_string(row)+'\n')
+
+    return True
+
 
 video_capture = cv2.VideoCapture(0)
 counter = 0
@@ -25,6 +37,8 @@ while True:
         cv2.imwrite(str(counter) + ".jpg", small)
         cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
         cv2.imshow("Face found", frame)
+        
+        write_matrix_to_textfile(small, 'data.dat')
     
     counter = counter + 1
     if cv2.waitKey(1) & 0xFF == ord('q'):

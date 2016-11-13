@@ -1,40 +1,56 @@
 import cv2
 import sys
-import numpy as np
+    
+# Get user supplied values
+#imagePath = sys.argv[1]
+video_capture = cv2.VideoCapture(0)
 
 # Create the haar cascade
-faceCascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+eyeCascade = cv2.CascadeClassifier("haarcascade_eye.xml")
+noseCascade = cv2.CascadeClassifier("Nariz.xml")
+smileCascade = cv2.CascadeClassifier("mouth.xml")
 
-def extract_face(img, N):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+while True:
+    # Capture frame-by-frame
+    ret, frame = video_capture.read()
 
-    # Detect faces in the image
+    #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
     faces = faceCascade.detectMultiScale(
-        gray,
+        frame,
         scaleFactor=1.1,
         minNeighbors=5,
         minSize=(30, 30),
+        flags=cv2.cv.CV_HAAR_SCALE_IMAGE
     )
 
-    if faces.shape == (0,):
-        return np.array([])
+    # Show only face
+    for (x, y, w, h) in faces:
+        scale = 125
+        sized = frame[y:y+h, x:x+w]
+        sizedx2 = cv2.resize(sized, (scale, scale))
+        sized_gray = cv2.cvtColor(sizedx2, cv2.COLOR_BGR2GRAY)
+        #sized_c = cv2.equalizeHist(sized_gray)
+        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
+        eyes = eyeCascade.detectMultiScale(sized_gray)
+        smile = smileCascade.detectMultiScale(sized_gray)
+        nose = noseCascade.detectMultiScale(sized_gray)
+        xScale = w/float(scale)
+        yScale = h/float(scale)
+        # for (ex,ey,ew,eh) in eyes:
+            # cv2.rectangle(sized,(int(ex * xScale), int(ey * yScale)),(int((ex + ew) * xScale), int((ey + eh) * yScale)),(0,255,0),2)
+        # if len(smile) != 0 :
+            # sx,sy,sw,sh = smile[0]
+            # cv2.rectangle(sized,(int(sx * xScale), int(sy * yScale)),(int((sx + sw) * xScale), int((sy + sh) * yScale)),(0,0,255),2)
+        # if len(nose) != 0 :
+            # nx,ny,nw,nh = nose[0]
+            # cv2.rectangle(sized,(int(nx * xScale), int(ny * yScale)),(int((nx + nw) * xScale), int((ny + nh) * yScale)),(0,0,0),2)
+        cv2.imshow("Face found", frame)
+        
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-    # assuming that only one face on the image
-    face = faces[0]
-
-    # resize the image
-    (x, y, w, h) = face
-    face = gray[y:y + h, x:x + w]
-    face = cv2.resize(face, (N, N), interpolation=cv2.INTER_LANCZOS4)
-
-    return face
-
-# # Get user supplied values
-# imagePath = '1.png'
-
-# # Read the image
-# image = cv2.imread(imagePath)
-
-# f = extract_faces(image)
-# cv2.imshow('', f[0])
-# cv2.waitKey(0)
+# When everything is done, release the capture
+video_capture.release()
+cv2.destroyAllWindows()

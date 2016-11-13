@@ -26,39 +26,83 @@ import theano.tensor as T
 
 import lasagne
 
+faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
 datadir = 'D:\\inzynierka\\data\\'
+labeldir = 'Emotion\\'
+imagedir = 'cohn-kanade-images\\'
+size = 96
 
 # ################## Download and prepare the MNIST dataset ##################
 # This is just some way of getting the MNIST dataset from an online location
 # and loading it into numpy arrays. It doesn't involve Lasagne at all.
 
+def write_matrix_to_textfile(a_matrix, file_to_write): # nie dziala dla duzych danych, wstawia ...
+
+    def compile_row_string(a_row):
+        return str(a_row).strip(']').strip('[').replace(' ','')
+
+    with open(file_to_write, 'w') as f:
+        for row in a_matrix:
+            f.write(compile_row_string(row)+'\n')
+
+    return True
+
+## 0=neutral, 1=anger, 2=contempt, 3=disgust, 4=fear, 5=happy, 6=sadness, 7=surprise
 def load_dataset():
     import gzip
     def load_images(path):
         paths = os.listdir(path)
         files = []
         for p in paths :
-            if os.path.isfile(path + "\\" + p) and p.endswith(".jpg"):
+            if os.path.isfile(path + "\\" + p) and (p.endswith(".jpg") or p.endswith(".png")):
                 files.append(p)
         data = []
+        counter = 0
         for f in files :
-            img = cv2.imread(path + "\\" + f)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            # The inputs come as bytes, we convert them to float32 in range [0,1].
-            data.append(gray / np.float(256))
+            if counter > 3*len(files)/4 :
+                img = cv2.imread(path + "\\" + f)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                faces = faceCascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),
+                    flags=cv2.cv.CV_HAAR_SCALE_IMAGE
+                )
+                for (x, y, w, h) in faces:
+                    small = cv2.resize(gray[y:y+h, x:x+w], (size,size))
+                    break
+                # The inputs come as bytes, we convert them to float32 in range [0,1].
+                data.append(small / np.float(256))
+            counter += 1
         return data
     
     data = []
     labels = []
-    paths = os.listdir(datadir)
-    type = 0
-    for path in paths :
-        if os.path.isdir(datadir + path):
-            imgs = load_images(datadir + path)
-            for i in range (0, len(imgs)):
-                labels.append(type)
-            type = type + 1
-            data.extend(imgs)
+    imagepaths = os.listdir(datadir + imagedir)
+    labelpaths = os.listdir(datadir + labeldir)
+    counter = 0
+    for path in labelpaths :
+        count = 100 * counter / len(labelpaths)
+        out = '#' * (count / 5) + ' ' * (20 - (count / 5)) + ' ' + str(count) + '%'
+        sys.stdout.write('\r'+out)
+        if os.path.isdir(datadir + labeldir + path):
+            in_dir = os.listdir(datadir + labeldir + path)
+            for in_path in in_dir :
+                if os.path.isdir(datadir + labeldir + path + '\\' + in_path):
+                    txt_dir = os.listdir(datadir + labeldir + path + '\\' + in_path)
+                    for textfile in txt_dir:
+                        lab = 0
+                        if os.path.isfile(datadir + labeldir + path + '\\' + in_path + '\\' + textfile) and textfile.endswith(".txt"):
+                            with open(datadir + labeldir + path + '\\' + in_path + '\\' + textfile) as f:
+                                for line in f :
+                                    lab = int(float(line))
+                        imgs = load_images(datadir + imagedir + path + '\\' + in_path + '\\')
+                        
+                        for i in range (0, len(imgs)):
+                            labels.append(lab - 1)
+                        data.extend(imgs)
+        counter += 1
 
     # print(labels.__len__())
     # print(labels)
@@ -66,7 +110,13 @@ def load_dataset():
     # (It doesn't matter how we do this as long as we can read them again.)
     labels_arr = np.array(labels)
     data_arr = np.array(data)
-    data_arr = data_arr.reshape(-1,1,128,128)
+    data_arr = data_arr.reshape(-1,1,size,size)
+
+    # write_matrix_to_textfile(labels_arr, 'labels.dat')
+    # write_matrix_to_textfile(data_arr, 'data.dat')
+    
+    print (len(labels_arr))
+    print ('data loaded')
     return data_arr, labels_arr
 
 
@@ -83,7 +133,7 @@ def build_mlp(input_var=None):
     # Input layer, specifying the expected input shape of the network
     # (unspecified batchsize, 1 channel, 28 rows and 28 columns) and
     # linking it to the given Theano variable `input_var`, if any:
-    l_in = lasagne.layers.InputLayer(shape=(None, 1, 128, 128),
+    l_in = lasagne.layers.InputLayer(shape=(None, 1, size, size),
                                      input_var=input_var)
 
     # Apply 20% dropout to the input data:
@@ -150,7 +200,7 @@ def build_cnn(input_var=None):
     # and a fully-connected hidden layer in front of the output layer.
 
     # Input layer, as usual:
-    network = lasagne.layers.InputLayer(shape=(None, 1, 128, 128),
+    network = lasagne.layers.InputLayer(shape=(None, 1, size, size),
                                         input_var=input_var)
     # This time we do not apply input dropout, as it tends to work less well
     # for convolutional layers.
@@ -183,7 +233,7 @@ def build_cnn(input_var=None):
     # And, finally, the 10-unit output layer with 50% dropout on its inputs:
     network = lasagne.layers.DenseLayer(
             lasagne.layers.dropout(network, p=.5),
-            num_units=2,
+            num_units=7,
             nonlinearity=lasagne.nonlinearities.softmax)
 
     return network
@@ -219,7 +269,7 @@ def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
 # more functions to better separate the code, but it wouldn't make it any
 # easier to read.
 
-def main(model='mlp', num_epochs=500):
+def main(model='cnn', num_epochs=600):
     # Load the dataset
     print("Loading data...")
     data, labels = load_dataset()
@@ -238,6 +288,9 @@ def main(model='mlp', num_epochs=500):
                                    float(drop_in), float(drop_hid))
     elif model == 'cnn':
         network = build_cnn(input_var)
+        with np.load('model599.npz') as f:
+            param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(network, param_values)
     else:
         print("Unrecognized model type %r." % model)
         return
@@ -282,7 +335,7 @@ def main(model='mlp', num_epochs=500):
         train_err = 0
         train_batches = 0
         start_time = time.time()
-        for batch in iterate_minibatches(data, labels, 10, shuffle=True):
+        for batch in iterate_minibatches(data, labels, 50, shuffle=True):
             inputs, targets = batch
             train_err += train_fn(inputs, targets)
             train_batches += 1
@@ -291,6 +344,8 @@ def main(model='mlp', num_epochs=500):
         print("Epoch {} of {} took {:.3f}s".format(
             epoch + 1, num_epochs, time.time() - start_time))
         print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
+        name = 'model' + str(epoch) + '.npz'
+        np.savez(name, *lasagne.layers.get_all_param_values(network))
     
 
     # Optionally, you could now dump the network weights to a file like this:
