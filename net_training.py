@@ -11,11 +11,10 @@ import lasagne
 size = 96
 input_var = T.tensor4('inputs')
 
-# ladowanie obrazu
 def load_img(img_path):
     img = cv2.imread(img_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+    faceCascade = cv2.CascadeClassifier("models/haarcascade_frontalface_default.xml")
     faces = faceCascade.detectMultiScale(
         gray,
         scaleFactor=1.1,
@@ -29,10 +28,25 @@ def load_img(img_path):
         arr = arr.reshape(1,1,size,size)
         return arr
     return np.array([])
-    
+
 # modul przygotowywania danych
 def train_net(datadir, imagedir, labeldir, network, epochs=1000, save_each=False):
     import gzip
+    def load(img_path): 
+        img = cv2.imread(img_path)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faceCascade = cv2.CascadeClassifier("models/haarcascade_frontalface_default.xml")
+        faces = faceCascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30),
+            flags=cv2.cv.CV_HAAR_SCALE_IMAGE
+        )
+        for (x, y, w, h) in faces:
+            small = cv2.resize(gray[y:y+h, x:x+w], (size,size))
+            return small / np.float(256)
+
     def load_images(path): 
         paths = os.listdir(path)
         files = []
@@ -45,7 +59,7 @@ def train_net(datadir, imagedir, labeldir, network, epochs=1000, save_each=False
             if face is not None :
                 data.append(face)
         return data
-    
+
     def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
         assert len(inputs) == len(targets)
         if len(inputs) < batchsize :
@@ -66,22 +80,7 @@ def train_net(datadir, imagedir, labeldir, network, epochs=1000, save_each=False
             out1_arr = np.array(out1)
             out1_arr = out1_arr.reshape(-1,1,size,size)
             yield out1_arr, np.array(out2)
-    
-    def load(img_path): 
-        img = cv2.imread(img_path)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
-        faces = faceCascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30),
-            flags=cv2.cv.CV_HAAR_SCALE_IMAGE
-        )
-        for (x, y, w, h) in faces:
-            small = cv2.resize(gray[y:y+h, x:x+w], (size,size))
-            return small / np.float(256)
-    
+
     # ladowanie danych
     print("Loading data...")
     data = []
@@ -116,7 +115,7 @@ def train_net(datadir, imagedir, labeldir, network, epochs=1000, save_each=False
     data_arr = data_arr.reshape(-1,1,size,size)
     labels_arr = np.array(labels)
     print ('\ndata loaded')
-    
+
     target_var = T.ivector('targets')
 
     # funkcja bledu
@@ -146,18 +145,18 @@ def train_net(datadir, imagedir, labeldir, network, epochs=1000, save_each=False
         print("Epoch {} of {} took {:.3f}s".format(
             epoch + 1, epochs, time.time() - start_time))
         print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
-        
-        if save_each :
-            name = 'custom_model' + str(epoch) + '.npz'
+
+        if save_each:
+            name = "custom_model%s.npz" % epoch
             np.savez(name, *lasagne.layers.get_all_param_values(network))
-    
+
     np.savez('custom_model.npz', *lasagne.layers.get_all_param_values(network))
- 
+
 # modul tworzenia architektury sieci
 def build_cnn(model = None):
     network = lasagne.layers.InputLayer(shape=(None, 1, size, size),
                                         input_var=input_var)
-                                        
+
     network = lasagne.layers.Conv2DLayer(
             network, num_filters=32, filter_size=(5, 5),
             nonlinearity=lasagne.nonlinearities.rectify,
@@ -179,19 +178,20 @@ def build_cnn(model = None):
             lasagne.layers.dropout(network, p=.5),
             num_units=7,
             nonlinearity=lasagne.nonlinearities.softmax)
-                    
-    if model != None :
+
+    # ladowanie wag sieci jezeli podano
+    if model != None:
         with np.load(model) as f:
             param_values = [f['arr_%d' % i] for i in range(len(f.files))]
         lasagne.layers.set_all_param_values(network, param_values)
-        
+
     return network
 
 # ewaluacja sieci
-# 0=neutral, 1=anger, 2=contempt, 3=disgust, 4=fear, 5=happy, 6=sadness, 7=surprise
+# 0=anger, 1=contempt, 2=disgust, 3=fear, 4=happy, 5=sadness, 6=surprise
 def evaluate(network, faces_matrix):
     if faces_matrix.ndim != 4 :
         return np.array([[.0,.0,.0,.0,.0,.0,.0]])
+
     out = lasagne.layers.get_output(network, faces_matrix)
     return out.eval()
-
